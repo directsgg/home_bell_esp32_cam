@@ -10,6 +10,14 @@
 
 // #include "GenericDevBoardIndicatorLed.h"
 
+#include "AudioTools.h"
+#include "AudioLibs/Communication.h"
+AudioInfo info(16000, 1, 16);
+UDPStream udp(WIFI_SSID, WIFI_PSWD);
+const int udpPort = 12345;
+I2SStream out; // or ony other e.g AudioKitStream
+StreamCopy copierOut(out, udp);
+
 static void application_task(void *param)
 {
   // delegate onto the application
@@ -28,6 +36,7 @@ Application::Application()
 
 void Application::begin()
 {
+  /*
   // bring up WiFi
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PSWD);
@@ -47,6 +56,24 @@ void Application::begin()
   // do any setup of the transport
   m_transport->begin();
 
+  */
+
+  AudioLogger::instance().begin(Serial, AudioLogger::Warning);
+
+  // start UDP receive
+  udp.begin(udpPort);
+
+  // start I2S
+  auto config = out.defaultConfig(TX_MODE);
+  config.copyFrom(info);
+  config.buffer_size = 1024;
+  config.buffer_count = 4;
+  config.pin_ws=12;
+  config.pin_bck=13;
+  config.pin_data=15;
+  out.begin(config);
+  
+
   // setup the transmit button
   pinMode(GPIO_TRANSMIT_BUTTON, INPUT_PULLDOWN);
 
@@ -65,6 +92,8 @@ void Application::loop()
     // do we need tostart trasmitting?
     if (digitalRead(GPIO_TRANSMIT_BUTTON))
     {
+      // stop the output as we're switching into transmit mode
+      out.end();
       // start the input to get samples from the microphone
       m_input->start();
       Serial.println("Started transmitting");
@@ -84,7 +113,16 @@ void Application::loop()
       // finished transmitting stop the input and start the output
       Serial.println("Finished transmitting");
       m_input->stop();
+      out.begin();
     }
-    
+    // while the transmit button is not pushed and 1 second has not elapsed
+    Serial.print("Started Receiving");
+    unsigned long start_time = millis();
+    while (millis() - start_time < 1000 || !digitalRead(GPIO_TRANSMIT_BUTTON))
+    {
+      copierOut.copy();
+    }
+    //digitalWrite(I2S_SPEAKER_SD_PIN, LOW);
+    Serial.println("Finished Receiving");
   }
 }
