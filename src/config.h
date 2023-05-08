@@ -3,8 +3,8 @@
 #include <driver/gpio.h>
 
 // WiFi credentials
-#define WIFI_SSID "UDEO ALUMNOS"
-#define WIFI_PSWD "udeocentral"
+#define WIFI_SSID "SSID_router"
+#define WIFI_PSWD "password"
 
 //sample rate for the system
 #define SAMPLE_RATE 32000

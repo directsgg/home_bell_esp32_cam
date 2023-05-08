@@ -121,7 +121,7 @@ void Application::loop()
           if ((m_index+m_header_size) == m_buffer_size)
           {
             // send
-            //udp.write(m_buffer, m_index);
+            udp.write(m_buffer, m_index);
             m_index = 0;
           }
         }
@@ -130,7 +130,7 @@ void Application::loop()
       if (m_index > 0)
       {
         // send
-        //udp.write(m_buffer, m_index);
+        udp.write(m_buffer, m_index);
         m_index = 0;
       }
       // finished transmitting stop the input and start the output
