@@ -15,6 +15,8 @@
 AudioInfo info(16000, 1, 16);
 UDPStream udp(WIFI_SSID, WIFI_PSWD);
 const int udpPort = 12345;
+IPAddress udpAddress(255, 255, 255, 255);
+
 I2SStream out; // or ony other e.g AudioKitStream
 StreamCopy copierOut(out, udp);
 
@@ -31,7 +33,7 @@ Application::Application()
   m_input = new ADCSampler(ADC_UNIT_1, ADC_MIC_CHANNEL, i2s_adc_config);
 
   m_transport = new UdpTransport(m_output_buffer);
-  m_transport->set_header(TRANSPORT_HEADER_SIZE, transport_header);
+  //m_transport->set_header(TRANSPORT_HEADER_SIZE, transport_header);
 }
 
 void Application::begin()
@@ -61,11 +63,11 @@ void Application::begin()
   AudioLogger::instance().begin(Serial, AudioLogger::Warning);
 
   // start UDP receive
-  udp.begin(udpPort);
-
+  udp.begin(udpAddress, udpPort);
   // start I2S
   auto config = out.defaultConfig(TX_MODE);
   config.copyFrom(info);
+  config.port_no = 1;
   config.buffer_size = 1024;
   config.buffer_count = 4;
   config.pin_ws=12;
@@ -86,6 +88,11 @@ void Application::begin()
 void Application::loop()
 {
   int16_t *samples = reinterpret_cast<int16_t *>(malloc(sizeof(int16_t) * 128));
+  // audio buffer for samples we need to send
+  int m_buffer_size = 1436;
+  int m_index = 0;
+  int m_header_size;
+  uint8_t *m_buffer = (uint8_t *)malloc(m_buffer_size);
   // continue forever
   while (true)
   {
@@ -106,10 +113,26 @@ void Application::loop()
         // and send them over the transport
         for (int i = 0; i < samples_read; i++)
         {
-          m_transport->add_sample(samples[i]);
+          //m_transport->add_sample(samples[i]);
+
+          m_buffer[m_index+m_header_size] = (samples[i] + 32768) >> 8;
+          m_index++;
+          // have we reached a full packet?
+          if ((m_index+m_header_size) == m_buffer_size)
+          {
+            // send
+            //udp.write(m_buffer, m_index);
+            m_index = 0;
+          }
         }
       }
-      m_transport->flush();
+      //m_transport->flush();
+      if (m_index > 0)
+      {
+        // send
+        //udp.write(m_buffer, m_index);
+        m_index = 0;
+      }
       // finished transmitting stop the input and start the output
       Serial.println("Finished transmitting");
       m_input->stop();
