@@ -65,15 +65,15 @@ void Application::begin()
   // start UDP receive
   udp.begin(udpAddress, udpPort);
   // start I2S
-  auto config = out.defaultConfig(TX_MODE);
-  config.copyFrom(info);
-  config.port_no = 1;
-  config.buffer_size = 1024;
-  config.buffer_count = 4;
-  config.pin_ws=12;
-  config.pin_bck=13;
-  config.pin_data=15;
-  out.begin(config);
+  auto outI2SConfig = out.defaultConfig(TX_MODE);
+  outI2SConfig.copyFrom(info);
+  outI2SConfig.port_no = 1;
+  outI2SConfig.buffer_size = 1024;
+  outI2SConfig.buffer_count = 4;
+  outI2SConfig.pin_ws=13;
+  outI2SConfig.pin_bck=15;
+  outI2SConfig.pin_data=14;
+  out.begin(outI2SConfig);
   
 
   // setup the transmit button
