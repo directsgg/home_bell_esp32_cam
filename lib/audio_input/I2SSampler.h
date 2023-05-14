@@ -9,7 +9,7 @@
 class I2SSampler
 {
 protected:
-  i2s_port_t m_i2sPort = I2S_NUM_0;
+  i2s_port_t m_i2sPort = I2S_NUM_1;
   i2s_config_t m_i2s_config;
   virtual void configureI2S() = 0;
   virtual void proccessI2SData(void *samples, size_t count)
