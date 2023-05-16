@@ -3,7 +3,7 @@
 #include <driver/gpio.h>
 
 // WiFi credentials
-#define WIFI_SSID "SSID"
+#define WIFI_SSID "Nexxt_50E438"
 #define WIFI_PSWD "otrointernet"
 
 //sample rate for the system
@@ -20,10 +20,10 @@
 #define ADC_MIC_CHANNEL ADC1_CHANNEL_5
 
 // transmit button
-#define GPIO_TRANSMIT_BUTTON 4 
+#define GPIO_TRANSMIT_BUTTON 2 
 
 // control button
-#define GPIO_CONTROL_BUTTON  2
+//#define GPIO_CONTROL_BUTTON  2
 
 // In case all transport packets need a header (to avoid interference with other applications or walkie talkie sets), 
 // specify TRANSPORT_HEADER_SIZE (the length in bytes of the header) in the next line, and define the transport header in config.cpp

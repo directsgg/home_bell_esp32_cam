@@ -1,6 +1,9 @@
 #include <Arduino.h>
 #include <driver/i2s.h>
 #include <WiFi.h>
+#include <AsyncUDP.h>
+
+AsyncUDP udpControlState;
 // audio
 #include "Application.h"
 #include "ADCSampler.h"
@@ -38,6 +41,21 @@ StreamCopy copierOutAudio(outI2SAudio, udp);
 // camera
 static httpd_handle_t SERVER_LIVE_STREAM = NULL;
 
+// para controlar el estado del programa
+// 0x00 - no hacer nada
+// 0x0F - microfono
+// 0xF0 - bocina
+byte estadoControl = 0x00;
+
+// door bell api key
+const char *host = "maker.ifttt.com";
+const char *privateKey = "cbjc4tNWaK-y3NqWKnZPGa";
+// door bell config variables
+int buttonState;           // the current reading from the input pin
+int lastButtonState = LOW; // the previous reading from the input pin
+long lastDebounceTime = 0; // the last time the output pin was toggled
+long debounceDelay = 50;   // the debounce time; increase if the output flickers
+
 static esp_err_t init_camera(void)
 {
   camera_config_t configCamera;
@@ -62,18 +80,18 @@ static esp_err_t init_camera(void)
   configCamera.xclk_freq_hz = 20000000;
   configCamera.pixel_format = PIXFORMAT_JPEG;
   // init with high specs to pre-allocate larger buffers
-  //if (psramFound())
+  // if (psramFound())
   //{
   //  configCamera.frame_size = FRAMESIZE_UXGA;
   //  configCamera.jpeg_quality = 10;
   //  configCamera.fb_count = 2;
   //  configCamera.grab_mode = CAMERA_GRAB_WHEN_EMPTY; // CAMERA_GRAB_LATEST. Sets when buffers should be filled
   //}
-  //else
+  // else
   //{
-    configCamera.frame_size = FRAMESIZE_SVGA;
-    configCamera.jpeg_quality = 12;
-    configCamera.fb_count = 1;
+  configCamera.frame_size = FRAMESIZE_SVGA;
+  configCamera.jpeg_quality = 12;
+  configCamera.fb_count = 1;
   //}
 
   // camera init
@@ -82,7 +100,9 @@ static esp_err_t init_camera(void)
   {
     Serial.print("Camera init failed with error: ");
     Serial.println(err);
-    while(true) {};
+    while (true)
+    {
+    };
     return err;
   }
 
@@ -201,12 +221,12 @@ httpd_handle_t start_live_stream_server(void)
   Serial.print(WiFi.localIP());
   Serial.println("' to connect");
 
-  Serial.print("server ");
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.max_uri_handlers = 16;
-
+  config.server_port += 1;
+  config.ctrl_port += 1;
   httpd_uri_t stream_uri = {
-      .uri = "/",
+      .uri = "/stream",
       .method = HTTP_GET,
       .handler = jpg_stream_httpd_handler,
       .user_ctx = NULL};
@@ -216,7 +236,8 @@ httpd_handle_t start_live_stream_server(void)
   if (httpd_start(&stream_httpd, &config) == ESP_OK)
   {
     httpd_register_uri_handler(stream_httpd, &stream_uri);
-    Serial.println("start");
+    Serial.print("Starting stream server on port: ");
+    Serial.println(config.server_port);
   }
   return stream_httpd;
 }
@@ -228,15 +249,172 @@ static void stop_live_stream_server(httpd_handle_t server)
   Serial.println("server stop");
 }
 
-static void startModoCamara() {
+static void startModoCamara()
+{
   SERVER_LIVE_STREAM = start_live_stream_server();
 }
 
-static void stopModoCamara() {
+static void stopModoCamara()
+{
   stop_live_stream_server(SERVER_LIVE_STREAM);
   SERVER_LIVE_STREAM = NULL;
 }
 
+void initUDPControlState()
+{
+  const int portUdpControlState = 12344;
+  if (udpControlState.listen(portUdpControlState))
+  {
+    Serial.print("UDP Listening on IP: ");
+    Serial.print(WiFi.localIP());
+    Serial.print(" on Port: ");
+    Serial.println(portUdpControlState);
+    udpControlState.onPacket([](AsyncUDPPacket packet)
+                             {
+        Serial.print("UDP Packet Type: ");
+        Serial.print(packet.isBroadcast() ? "Broadcast" : packet.isMulticast() ? "Multicast"
+                                                                              : "Unicast");
+        Serial.print(", From: ");
+        Serial.print(packet.remoteIP());
+        Serial.print(":");
+        Serial.print(packet.remotePort());
+        Serial.print(", To: ");
+        Serial.print(packet.localIP());
+        Serial.print(":");
+        Serial.print(packet.localPort());
+        Serial.print(", Length: ");
+        Serial.print(packet.length());
+        Serial.print(", Data: ");
+        Serial.write(packet.data(), packet.length());
+        Serial.println();
+
+        char* tmpStr = (char*) malloc(packet.length() + 1);
+        mempcpy(tmpStr, packet.data(), packet.length()); 
+        tmpStr[packet.length()] = '\0'; // ensure null termination
+        String mensaje = String(tmpStr);
+        free(tmpStr); // String(char*) creates a copy so we can delete our one
+        Serial.print("Mensaje string: ");
+        Serial.println(mensaje);
+        if (mensaje == "ip") {
+          String m = WiFi.localIP().toString();
+          packet.print(m);
+        } });
+  }
+}
+
+static esp_err_t ctrl_put_handler(httpd_req_t *req)
+{
+  char buf;
+  int ret;
+
+  if ((ret = httpd_req_recv(req, &buf, 1)) <= 0)
+  {
+    if (ret == HTTPD_SOCK_ERR_TIMEOUT)
+    {
+      httpd_resp_send_408(req);
+    }
+    return ESP_FAIL;
+  }
+  /*
+  para hacer una consulta en curl
+  curl -X PUT -d "t" 192.168.0.114:80/ctrl
+  */
+
+  // para controlar el estado del programa
+  // 0x00 - no hacer nada
+  // 0x0F - microfono
+  // 0xF0 - bocina
+
+  // generar el control
+  if (buf == 'm')
+  {
+    estadoControl = 0x0F;
+  }
+  else if (buf == 'b')
+  {
+    estadoControl = 0xF0;
+  }
+  else
+  {
+    estadoControl = 0x00;
+  }
+  Serial.print("mensaje http put: ");
+  Serial.println(buf);
+
+  // respond with empty body
+  httpd_resp_send(req, NULL, 0);
+  return ESP_OK;
+}
+static httpd_handle_t startWebServerControl(void)
+{
+  httpd_handle_t server = NULL;
+  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+  config.lru_purge_enable = true;
+
+  httpd_uri_t ctrl_uri = {
+      .uri = "/ctrl",
+      .method = HTTP_PUT,
+      .handler = ctrl_put_handler,
+      .user_ctx = NULL};
+  // start the httpd server
+  Serial.print("Starting web server control on port ");
+  Serial.print(config.server_port);
+  if (httpd_start(&server, &config) == ESP_OK)
+  {
+    // registrar URI handlers
+    httpd_register_uri_handler(server, &ctrl_uri);
+    Serial.println(": iniciado");
+    return server;
+  }
+  Serial.println(": fallo al iniciar");
+  return NULL;
+}
+
+void send_event(const char *event)
+{
+  Serial.print("Connecting to ");
+  Serial.println(host);
+
+  // Use WiFiClient class to create TCP connections
+  WiFiClient client;
+  const int httpPort = 80;
+  if (!client.connect(host, httpPort))
+  {
+    Serial.println("Connection failed");
+    return;
+  }
+
+  // We now create a URI for the request
+  String url = "/trigger/";
+  url += event;
+  url += "/with/key/";
+  url += privateKey;
+
+  Serial.print("Requesting URL: ");
+  Serial.println(url);
+
+  // This will send the request to the server
+  client.print(String("GET ") + url + " HTTP/1.1\r\n" +
+               "Host: " + host + "\r\n" +
+               "Connection: close\r\n\r\n");
+  while (client.connected())
+  {
+    if (client.available())
+    {
+      String line = client.readStringUntil('\r');
+      Serial.print(line);
+    }
+    else
+    {
+      // No data yet, wait a bit
+      delay(50);
+    };
+  }
+
+  Serial.println();
+  Serial.println("closing connection");
+  client.stop();
+}
 static void application_task(void *param)
 {
   // delegate onto the application
@@ -263,11 +441,10 @@ void Application::begin()
     ESP_ERROR_CHECK(nvs_flash_erase());
     ret = nvs_flash_init();
   }
-  //init_camera();
-
+  init_camera();
 
   // audio
-  //AudioLogger::instance().begin(Serial, AudioLogger::Warning);
+  AudioLogger::instance().begin(Serial, AudioLogger::Info);
 
   // start UDP receive
   udp.begin(udpAddress, udpPort);
@@ -284,12 +461,16 @@ void Application::begin()
 
   // camara
   startModoCamara();
-
-  //esp_camera_deinit();
-  // setup the transmit button
+  Serial.println("config 1");
+  // iniciar puerto para udp control
+  initUDPControlState();
+  startWebServerControl();
+  Serial.println("config 2");
+  // esp_camera_deinit();
+  //  setup the transmit button
   pinMode(GPIO_TRANSMIT_BUTTON, INPUT_PULLDOWN);
   // setup the config button
-  pinMode(GPIO_CONTROL_BUTTON, INPUT_PULLDOWN);
+  //pinMode(GPIO_CONTROL_BUTTON, INPUT_PULLDOWN);
   // start the main task for the application
   TaskHandle_t task_handle;
   xTaskCreate(application_task, "application_task", 8192, this, 1, &task_handle);
@@ -304,87 +485,112 @@ void Application::loop()
   int m_index = 0;
   int m_header_size;
   uint8_t *m_buffer = (uint8_t *)malloc(m_buffer_size);
-  // continue forever
   /*if(!digitalRead(GPIO_CONTROL_BUTTON)) {
     outI2SAudio.end();
   }*/
+
+  // continue forever
   while (true)
   {
-    // ¿necesitamos comenzar a transmitir audio o video?
-    if (digitalRead(GPIO_CONTROL_BUTTON))
+    // para controlar el estado del programa
+    // 0x00 - no hacer nada
+    // 0x0F - microfono
+    // 0xF0 - bocina
+
+    // do we need to start transmitting or receiving?
+    if (estadoControl == 0x0F)
     {
-      // detener la cámara ya que estamos cambiando al modo de audio
-      //stopModoCamara();
-      // iniciar el modo audio 
-      Serial.println("Iniciar modo audio");
-      //outI2SAudio.begin();
-      // modo audio durante al menos 1 segundo o mientras se presiona el botón de control
-      unsigned long start_time_control_mode = millis();
-      while (millis() - start_time_control_mode < 1000 || digitalRead(GPIO_CONTROL_BUTTON))
+      // stop the output as we're switching into transmit mode
+      outI2SAudio.end();
+      // start the input to get samples from the microphone
+      m_input->start();
+      Serial.print("Started transmitting");
+      // transmit for at least 1 second or while the button is pushed
+      unsigned long start_time = millis();
+      while (millis() - start_time < 1000)
       {
-        // todo modo audio
-        // do we need to start transmitting or receiving?
-        if (digitalRead(GPIO_TRANSMIT_BUTTON))
+        // esperar al menos un segundo
+      }
+      while (estadoControl == 0x0F)
+      {
+        // read samples from the microphone
+        int samples_read = m_input->read(samples, 128);
+        // and send them over the transport
+        for (int i = 0; i < samples_read; i++)
         {
-          // stop the output as we're switching into transmit mode
-          outI2SAudio.end();
-          // start the input to get samples from the microphone
-          m_input->start();
-          Serial.print("Started transmitting");
-          // transmit for at least 1 second or while the button is pushed
-          unsigned long start_time = millis();
-          while (millis() - start_time < 1000 || digitalRead(GPIO_TRANSMIT_BUTTON))
-          {
-            // read samples from the microphone
-            int samples_read = m_input->read(samples, 128);
-            // and send them over the transport
-            for (int i = 0; i < samples_read; i++)
-            {
-              // m_transport->add_sample(samples[i]);
-              m_buffer[m_index + m_header_size] = (samples[i] + 32768) >> 8;
-              m_index++;
-              // have we reached a full packet?
-              if ((m_index + m_header_size) == m_buffer_size)
-              {
-                // send
-                udp.write(m_buffer, m_index);
-                m_index = 0;
-              }
-            }
-          }
-          // m_transport->flush();
-          if (m_index > 0)
+          // m_transport->add_sample(samples[i]);
+          m_buffer[m_index + m_header_size] = (samples[i] + 32768) >> 8;
+          m_index++;
+          // have we reached a full packet?
+          if ((m_index + m_header_size) == m_buffer_size)
           {
             // send
             udp.write(m_buffer, m_index);
             m_index = 0;
           }
-          // finished transmitting stop the input and start the output
-          Serial.println("Finished transmitting");
-          m_input->stop();
-          outI2SAudio.begin();
         }
-        // while the transmit button is not pushed and 1 second has not elapsed
-        Serial.print("Started Receiving");
-        unsigned long start_time = millis();
-        while (millis() - start_time < 1000 || !digitalRead(GPIO_TRANSMIT_BUTTON))
-        {
-          copierOutAudio.copy();
-        }
-        // digitalWrite(I2S_SPEAKER_SD_PIN, LOW);
-        Serial.println("Finished Receiving");
       }
-      // terminado modo, detener modo audio y comenzar modo camara
-      //outI2SAudio.end();
-      Serial.println("Finalizar modo audio");
+      // m_transport->flush();
+      if (m_index > 0)
+      {
+        // send
+        udp.write(m_buffer, m_index);
+        m_index = 0;
+      }
+      // finished transmitting stop the input and start the output
+      Serial.println("Finished transmitting");
+      m_input->stop();
+      outI2SAudio.begin();
     }
-    // mientras no se presione el botón de configuracion y no haya transcurrido 1 segundo
-    Serial.println("Iniciar modo camara");
-    unsigned long start_time_control_mode = millis();
-    while (millis() - start_time_control_mode < 1000 || !digitalRead(GPIO_CONTROL_BUTTON))
+    // while the transmit button is not pushed and 1 second has not elapsed
+    if (estadoControl == 0xF0)
     {
-      // todo modo camara
+      Serial.print("Started Receiving");
+      unsigned long start_time = millis();
+      while (millis() - start_time < 1000)
+      {
+        // esperar al menos un segundo
+      }
+      while (estadoControl == 0xF0)
+      {
+        copierOutAudio.copy();
+      }
+      // digitalWrite(I2S_SPEAKER_SD_PIN, LOW);
+      Serial.println("Finished Receiving");
     }
-    Serial.println("Finalizar modo camara");
+
+    // door bell
+    while (WiFi.status() == WL_DISCONNECTED)
+    {
+      ESP.restart();
+      Serial.print("Connection Lost");
+    }
+    int reading = digitalRead(GPIO_TRANSMIT_BUTTON);
+    if (reading != lastButtonState)
+    {
+
+      lastDebounceTime = millis();
+    }
+
+    if ((millis() - lastDebounceTime) > debounceDelay)
+    {
+      // if the button state has changed:
+      if (reading != buttonState)
+      {
+        Serial.print("Button now ");
+        Serial.println(HIGH == reading ? "HIGH" : "LOW");
+        buttonState = reading;
+
+        // When the button is in the HIGH state (pulled high) the button has been pressed so send the event.
+        if (buttonState == HIGH)
+        {
+          send_event("button_pressed");
+          Serial.print("button pressed");
+        }
+      }
+    }
+
+    // save the reading.  Next time through the loop,
+    lastButtonState = reading;
   }
 }

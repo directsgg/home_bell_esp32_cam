@@ -13,8 +13,7 @@ unsigned long last_packet;
 bool UdpTransport::begin()
 {
     udp = new AsyncUDP();
-    udp->listen(12345);
-    /*last_packet = millis();
+    last_packet = millis();
     if (udp->listen(12345))
     {
         udp->onPacket([this](AsyncUDPPacket packet)
@@ -29,7 +28,7 @@ bool UdpTransport::begin()
         return true;              
     }
     Serial.println("Failed to listen");
-    return false;*/
+    return false;
 
     return true;
 }
