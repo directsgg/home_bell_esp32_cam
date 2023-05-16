@@ -3,8 +3,8 @@
 #include <driver/gpio.h>
 
 // WiFi credentials
-#define WIFI_SSID "Nexxt_50E438"
-#define WIFI_PSWD "otrointernet"
+#define WIFI_SSID "SSID"
+#define WIFI_PSWD "PASS"
 
 //sample rate for the system
 #define SAMPLE_RATE 32000
