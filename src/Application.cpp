@@ -211,7 +211,7 @@ esp_err_t jpg_stream_httpd_handler(httpd_req_t *req)
     frame_time /= 1000;
   }
   last_frame = 0;
-
+  ESP.restart();
   return res;
 }
 
@@ -334,6 +334,11 @@ static esp_err_t ctrl_put_handler(httpd_req_t *req)
   {
     estadoControl = 0xF0;
   }
+  else if (buf == 'c')
+  {
+    init_camera();
+    startModoCamara();
+  }
   else
   {
     estadoControl = 0x00;
@@ -370,7 +375,7 @@ static httpd_handle_t startWebServerControl(void)
   return NULL;
 }
 
-void send_event(const char *event)
+void send_event_door_bell(const char *event)
 {
   Serial.print("Connecting to ");
   Serial.println(host);
@@ -441,7 +446,7 @@ void Application::begin()
     ESP_ERROR_CHECK(nvs_flash_erase());
     ret = nvs_flash_init();
   }
-  init_camera();
+  
 
   // audio
   AudioLogger::instance().begin(Serial, AudioLogger::Info);
@@ -460,7 +465,7 @@ void Application::begin()
   outI2SAudio.begin(outI2SConfig);
 
   // camara
-  startModoCamara();
+  
   Serial.println("config 1");
   // iniciar puerto para udp control
   initUDPControlState();
@@ -584,7 +589,7 @@ void Application::loop()
         // When the button is in the HIGH state (pulled high) the button has been pressed so send the event.
         if (buttonState == HIGH)
         {
-          send_event("button_pressed");
+          send_event_door_bell("button_pressed");
           Serial.print("button pressed");
         }
       }
