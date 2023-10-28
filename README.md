@@ -11,6 +11,9 @@ Este proyecto es un timbre inteligente que utiliza un ESP32CAM, un módulo de mi
 ## Código Fuente
 El código fuente del proyecto está disponible en este repositorio basado en el microcontrolador esp32cam desarrollado sobre Platform IO.
 
+## Carcasa
+La carcasa del timbre inteligente fue creada con una impresora 3D. Los archivos STL para la carcasa están disponibles en esta página.
+
 ## Aplicación
 La aplicación para android asociada está desarrollada en React Native y permite el control del timbre inteligente tanto de la parte de audio como de video.
 
